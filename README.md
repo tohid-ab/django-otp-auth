@@ -89,11 +89,11 @@ A Django-based authentication system that uses phone numbers and OTP (One-Time P
 ```bash
   python manage.py runserver
 ```
-## Usage
+### Usage
 1. Use the `/api/auth/otp/create/` endpoint to send an OTP to the user's phone number.
 2. Verify the OTP using the `/api/auth/otp/verify/` endpoint to obtain JWT tokens.
 3. Use the `/api/auth/otp/refresh/` endpoint to refresh the access token when it expires.
-## Contributing
+### Contributing
 Contributions are welcome! Please fork the repository and create a pull request with your changes.
-## License
+### License
 This project is licensed under the MIT License. See the **[LICENSE](https://github.com/tohid-ab/django-otp-auth/blob/main/LICENSE)** file for details.
