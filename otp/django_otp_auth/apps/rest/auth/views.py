@@ -33,7 +33,7 @@ class OTPCreateView(APIView):
                 return Response(data={
                     'uuid': otp.uuid,
                     'receiver': otp.receiver,
-                    'message': 'The temporary password has been sent',
+                    'message': 'رمز عبور موقت ارسال شد',
                 }, status=status.HTTP_200_OK)
             except Exception as e:
                 print(e)
@@ -54,51 +54,69 @@ class OTPVerifyView(APIView):
         if serializer.is_valid():
             data = serializer.validated_data
             if OTPCode.objects.is_valid(data['receiver'], data['uuid'], data['code']):
-                return Response(self._handle_login(data, request))
-            else:
-                return Response(err_msg('sent code is incorrect', 400),
-                                status=status.HTTP_400_BAD_REQUEST)
+                response_data = self._handle_login(data, request)
+                print(response_data)
+                return Response(response_data)
+            return Response(err_msg('کد ارسال شده درست نمیباشد', 400), status=status.HTTP_400_BAD_REQUEST)
 
-        else:
-            return Response(err_msg('equest is invalid', 400),
-                            status=status.HTTP_400_BAD_REQUEST)
+        return Response(err_msg(err_serializer(serializer.errors), 400), status=status.HTTP_400_BAD_REQUEST)
 
-    @staticmethod
-    def _handle_login(otp, rqt):
-        receiver = otp.get('receiver')
-        otp_uuid = otp.get('uuid')
-        otp_code_value = otp.get('code')
-
-        if not all([receiver, otp_uuid, otp_code_value]):
-            raise ValueError("OTP data is incomplete.")
-        
+    def _handle_login(self, otp_data, request):
+        """
+        Main login workflow: get/create user, validate OTP, issue tokens.
+        """
         with transaction.atomic():
-            try:
-                user = User.objects.get(
-                    mobile_number=receiver
-                )
-            except User.DoesNotExist:
-                user = User.objects.create(
-                    mobile_number=receiver,
-                    email=None,
-                    username=User.generate_username()
-                )
+            user = self._get_or_create_user(otp_data['receiver'])
+            self._mark_otp_as_used(otp_data)
+            self._finalize_user(user)
 
-            try:
-                otp_code = OTPCode.objects.get(receiver=receiver, uuid=otp_uuid, code=otp_code_value)
-                # Mark the OTP code as used
-                otp_code.used = True
-                otp_code.save()
-            except OTPCode.DoesNotExist:
-                pass
+        return self._generate_tokens(user)
+    
+    def _get_or_create_user(self, mobile_number):
+        """
+        Returns existing user by mobile number or creates a new one.
+        """
+        try:
+            user = User.objects.get(
+                mobile_number=mobile_number
+            )
+        except User.DoesNotExist:
+            user = User.objects.create(
+                mobile_number=mobile_number,
+                email=None,
+                username=User.generate_username()
+            )
+        return user
+    
+    def _mark_otp_as_used(self, otp_data):
+        """
+        Marks the matching OTP code as used.
+        """
+        try:
+            otp_code = OTPCode.objects.get(
+                receiver=otp_data['receiver'],
+                uuid=otp_data['uuid'],
+                code=otp_data['code']
+            )
+            otp_code.used = True
+            otp_code.save()
+        except OTPCode.DoesNotExist as e:
+            print(f"Error: {e}")
 
-            user.last_login = timezone.now()
-            user.save()
-
+    def _finalize_user(self, user):
+        """
+        Updates last login.
+        """
+        user.last_login = timezone.now()
+        user.save()
+    
+    def _generate_tokens(self, user):
+        """
+        Returns new access and refresh tokens for user.
+        """
         access = AccessToken.for_user(user=user)
         access.set_exp(lifetime=datetime.timedelta(minutes=30))
         refresh = RefreshToken.for_user(user=user)
-
         return ObtainTokenSerializer({
             'access': str(access),
             'refresh': str(refresh)
